@@ -16,7 +16,6 @@ pub fn encode_sign<Claims: Serialize>(
     let header = Header {
         algorithm,
         key_id: key.key_id.clone(),
-        type_: Some("JWT".to_string()),
         ..Default::default()
     };
     ssi_jws::encode_sign_custom_header(&payload, key, &header)
