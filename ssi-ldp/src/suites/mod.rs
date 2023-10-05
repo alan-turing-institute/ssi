@@ -524,11 +524,11 @@ impl ProofSuite for ProofSuiteType {
                 .await
             }
             Self::CLSignature2019 => todo!(),
+            Self::RSSSignature => todo!(),
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
-            | Self::AnonCredDerivedCredentialv1
-            | Self::RSSSignature => todo!(),
+            | Self::AnonCredDerivedCredentialv1 => todo!(),
         }
     }
 
@@ -731,11 +731,11 @@ impl ProofSuite for ProofSuiteType {
                 .await
             }
             Self::CLSignature2019 => todo!(),
+            Self::RSSSignature => todo!(),
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
-            | Self::AnonCredDerivedCredentialv1
-            | Self::RSSSignature => todo!(),
+            | Self::AnonCredDerivedCredentialv1 => todo!(),
         }
     }
 
@@ -832,11 +832,11 @@ impl ProofSuite for ProofSuiteType {
                 verify(proof, document, resolver, context_loader).await
             }
             Self::CLSignature2019 => todo!(),
+            Self::RSSSignature => todo!(),
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
-            | Self::AnonCredDerivedCredentialv1
-            | Self::RSSSignature => todo!(),
+            | Self::AnonCredDerivedCredentialv1 => todo!(),
         }
     }
 
