@@ -77,6 +77,7 @@ pub enum ProofSuiteType {
     #[cfg(feature = "secp256r1")]
     EcdsaSecp256r1Signature2019,
     CLSignature2019,
+    RSSSignature,
     #[cfg(feature = "test")]
     NonJwsProof,
     #[cfg(feature = "test")]
@@ -140,6 +141,7 @@ impl ProofSuiteType {
             #[cfg(feature = "secp256r1")]
             Self::EcdsaSecp256r1Signature2019 => SignatureType::JWS,
             Self::CLSignature2019 => todo!(),
+            Self::RSSSignature => SignatureType::JWS,
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
@@ -190,6 +192,7 @@ impl ProofSuiteType {
             #[cfg(feature = "secp256r1")]
             Self::EcdsaSecp256r1Signature2019 => &["https://w3id.org/security#EcdsaSecp256r1Signature2019"],
             Self::CLSignature2019 => todo!(),
+            Self::RSSSignature => &[],
             #[cfg(feature = "test")]
             Self::NonJwsProof |
             Self::AnonCredPresentationProofv1 | Self::AnonCredDerivedCredentialv1 => todo!(),
@@ -524,7 +527,8 @@ impl ProofSuite for ProofSuiteType {
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
-            | Self::AnonCredDerivedCredentialv1 => todo!(),
+            | Self::AnonCredDerivedCredentialv1
+            | Self::RSSSignature => todo!(),
         }
     }
 
@@ -730,7 +734,8 @@ impl ProofSuite for ProofSuiteType {
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
-            | Self::AnonCredDerivedCredentialv1 => todo!(),
+            | Self::AnonCredDerivedCredentialv1
+            | Self::RSSSignature => todo!(),
         }
     }
 
@@ -830,7 +835,8 @@ impl ProofSuite for ProofSuiteType {
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
-            | Self::AnonCredDerivedCredentialv1 => todo!(),
+            | Self::AnonCredDerivedCredentialv1
+            | Self::RSSSignature => todo!(),
         }
     }
 
