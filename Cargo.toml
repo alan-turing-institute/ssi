@@ -12,7 +12,7 @@ keywords = ["ssi", "did", "vc", "vp", "jsonld"]
 exclude = ["json-ld-api/*", "json-ld-normalization/*", "vc-test-suite/*"]
 
 [features]
-default = ["w3c", "ripemd-160", "eip", "tezos","rss"]
+default = ["w3c", "ripemd-160", "eip", "tezos"]
 
 w3c = ["ssi-ldp/w3c", "secp256k1", "ed25519", "secp256r1", "rsa"]
 ## enable secp256k1 signatures
