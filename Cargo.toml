@@ -12,7 +12,7 @@ keywords = ["ssi", "did", "vc", "vp", "jsonld"]
 exclude = ["json-ld-api/*", "json-ld-normalization/*", "vc-test-suite/*"]
 
 [features]
-default = ["w3c", "ripemd-160", "eip", "tezos"]
+default = ["w3c", "ripemd-160", "eip", "tezos","rss"]
 
 w3c = ["ssi-ldp/w3c", "secp256k1", "ed25519", "secp256r1", "rsa"]
 ## enable secp256k1 signatures
@@ -29,6 +29,8 @@ rsa = ["ssi-ldp/rsa"]
 ripemd-160 = ["ssi-jwk/ripemd-160"]
 ## enable bbs
 bbs = ["ssi-crypto/bbs"]
+## enable Redactable Signature Scheme (RSS) Proofs
+rss = ["ssi-ldp/rss"]
 
 ## enable aleo ecosystem signatures
 aleo = ["ssi-ldp/aleo", "ssi-caips/aleo", "ssi-jws/aleo"]
