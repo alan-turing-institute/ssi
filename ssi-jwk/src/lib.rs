@@ -14,6 +14,9 @@ pub mod ripemd160;
 #[cfg(feature = "aleo")]
 pub mod aleo;
 
+#[cfg(feature = "rss")]
+pub mod rss;
+
 #[cfg(feature = "eip")]
 pub mod eip155;
 
@@ -255,6 +258,8 @@ pub enum Algorithm {
     ESKeccakKR,
     ESBlake2b,
     ESBlake2bK,
+    #[cfg(feature = "rss")]
+    RSS2023,
     #[doc(hidden)]
     AleoTestnet1Signature,
     // Per the specs it should only be `none` but `None` is kept for backwards compatibility
@@ -338,6 +343,11 @@ impl JWK {
         crate::aleo::generate_private_key_jwk().map_err(Error::AleoGeneratePrivateKey)
     }
 
+    #[cfg(feature = "rss")]
+    pub fn generate_rss2023(max_idxs: usize, params: &ps_sig::keys::Params) -> Result<JWK, Error> {
+        crate::rss::generate_keys_jwk(max_idxs, params)
+    }
+
     pub fn get_algorithm(&self) -> Option<Algorithm> {
         if let Some(algorithm) = self.algorithm {
             return Some(algorithm);
@@ -348,6 +358,10 @@ impl JWK {
             }
             Params::OKP(okp_params) if okp_params.curve == "Ed25519" => {
                 return Some(Algorithm::EdDSA);
+            }
+            #[cfg(feature = "rss")]
+            Params::OKP(okp_params) if okp_params.curve == crate::rss::OKP_CURVE => {
+                return Some(Algorithm::RSS2023);
             }
             #[cfg(feature = "aleo")]
             Params::OKP(okp_params) if okp_params.curve == crate::aleo::OKP_CURVE => {
@@ -1292,6 +1306,7 @@ impl From<Base64urlUInt> for Base64urlUIntString {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ps_sig::keys::Params as RSSParams;
 
     const RSA_JSON: &str = include_str!("../../tests/rsa2048-2020-08-25.json");
     const RSA_DER: &[u8] = include_bytes!("../../tests/rsa2048-2020-08-25.der");
@@ -1322,6 +1337,13 @@ mod tests {
     #[cfg(feature = "ed25519")]
     fn generate_ed25519() {
         let _key = JWK::generate_ed25519().unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "rss")]
+    fn test_generate_rss2023() {
+        let params = RSSParams::new("test".as_bytes());
+        let _key = JWK::generate_rss2023(7, &params).unwrap();
     }
 
     #[test]

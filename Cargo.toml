@@ -30,7 +30,7 @@ ripemd-160 = ["ssi-jwk/ripemd-160"]
 ## enable bbs
 bbs = ["ssi-crypto/bbs"]
 ## enable Redactable Signature Scheme (RSS) Proofs
-rss = ["ssi-ldp/rss"]
+rss = ["ssi-ldp/rss", "ssi-jwk/rss"]
 
 ## enable aleo ecosystem signatures
 aleo = ["ssi-ldp/aleo", "ssi-caips/aleo", "ssi-jws/aleo"]
