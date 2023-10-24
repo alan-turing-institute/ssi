@@ -1927,6 +1927,7 @@ pub(crate) mod tests {
 
     const JWK_JSON: &str = include_str!("../../tests/rsa2048-2020-08-25.json");
     const JWK_JSON_BAR: &str = include_str!("../../tests/ed25519-2021-06-16.json");
+    const JWK_JSON_RSS: &str = include_str!("../../tests/rss-jwk-example.json");
 
     #[test]
     fn credential_from_json() {
@@ -3797,5 +3798,54 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
         assert!(verification_result.errors.is_empty());
 
         assert_eq!(sig_hex, "0xd9a03af99298b50303343ae7b89e14eb7622d64023ddb2df6c220bd5b017fa2b48ab09a6754042eeeb3785ab64f3eab1dd4fd89dbbbbd0181f135b1b938b99841c");
+    }
+
+    #[async_std::test]
+    async fn rss_credential_issue() {
+        let vc_str = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2020-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "height": 1.8,
+                "weight": 70,
+                "nationality": "France",
+                "given_name": "Test",
+                "family_name": "A",
+                "issuing_country": "US",
+                "birth_date": "1958-07-17",
+                "age_in_years": 30,
+                "age_birth_year": 1958
+              }
+            }
+          }"###;
+        let mut vc: Credential = Credential::from_json_unsigned(vc_str).unwrap();
+
+        let key: JWK = serde_json::from_str(JWK_JSON_RSS).unwrap();
+        // let key: JWK = generate_keys_jwk(20, &Params::new("test".to_string().as_bytes())).unwrap();
+        // println!("{}", serde_json::to_string_pretty(&key).unwrap());
+
+        let issue_options = LinkedDataProofOptions {
+            verification_method: Some(URI::String("did:example:rss#key1".to_string())),
+            ..Default::default()
+        };
+        let mut context_loader = ssi_json_ld::ContextLoader::default();
+        let proof = vc
+            .generate_proof(&key, &issue_options, &DIDExample, &mut context_loader)
+            .await
+            .unwrap();
+        vc.add_proof(proof);
+        // println!("{}", serde_json::to_string_pretty(&vc).unwrap());
+
+        vc.verify(None, &DIDExample, &mut context_loader).await;
     }
 }

@@ -217,6 +217,8 @@ impl ProofSuiteType {
             Algorithm::ES384 => Self::JsonWebSignature2020,
             #[cfg(feature = "aleo")]
             Algorithm::AleoTestnet1Signature => Self::AleoSignature2021,
+            #[cfg(feature = "rss")]
+            Algorithm::RSS2023 => Self::RSSSignature2023,
             Algorithm::EdDSA | Algorithm::EdBlake2b => match verification_method {
                 #[cfg(feature = "solana")]
                 Some(URI::String(ref vm))
@@ -532,7 +534,17 @@ impl ProofSuite for ProofSuiteType {
             }
             Self::CLSignature2019 => todo!(),
             #[cfg(feature = "rss")]
-            Self::RSSSignature2023 => RSSSignature2023::sign(document, options),
+            Self::RSSSignature2023 => {
+                RSSSignature2023::sign(
+                    document,
+                    options,
+                    resolver,
+                    context_loader,
+                    key,
+                    extra_proof_properties,
+                )
+                .await
+            }
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
@@ -842,7 +854,9 @@ impl ProofSuite for ProofSuiteType {
             }
             Self::CLSignature2019 => todo!(),
             #[cfg(feature = "rss")]
-            Self::RSSSignature2023 => RSSSignature2023::verify(proof, document, resolver).await,
+            Self::RSSSignature2023 => {
+                RSSSignature2023::verify(proof, document, resolver, context_loader).await
+            }
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
