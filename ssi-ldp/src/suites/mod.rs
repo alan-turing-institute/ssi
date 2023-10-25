@@ -4,7 +4,7 @@ pub mod dataintegrity;
 #[cfg(feature = "eip")]
 mod eip;
 #[cfg(feature = "rss")]
-mod rss;
+pub(crate) mod rss;
 #[cfg(feature = "secp256k1")]
 mod secp256k1;
 #[cfg(feature = "solana")]

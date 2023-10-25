@@ -129,8 +129,8 @@ pub enum Error {
     Multibase(#[from] multibase::Error),
     /// Wrapped RSS key error
     #[cfg(feature = "rss")]
-    #[error("RSS key error: {0}")]
-    WrappedRSSKeyError(RSSKeyError),
+    #[error(transparent)]
+    WrappedRSSKeyError(#[from] RSSKeyError),
 }
 
 #[cfg(feature = "ring")]
@@ -144,12 +144,5 @@ impl From<KeyRejectedError> for Error {
 impl From<RingUnspecified> for Error {
     fn from(e: RingUnspecified) -> Error {
         Error::RingUnspecified(e)
-    }
-}
-
-#[cfg(feature = "rss")]
-impl From<RSSKeyError> for Error {
-    fn from(e: RSSKeyError) -> Error {
-        Error::WrappedRSSKeyError(e)
     }
 }

@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use ps_sig::{keys::RSSKeyPair, rsssig::RSignature, FieldElement};
+use ps_sig::{
+    keys::RSSKeyPair,
+    rsssig::{RSVerifyResult, RSignature, RSignatureError},
+    FieldElement,
+};
 use serde_json::Value;
 use ssi_dids::did_resolve::{resolve_vm, DIDResolver};
 use ssi_json_ld::ContextLoader;
@@ -8,6 +12,14 @@ use ssi_jwk::{rss::RSSKeyError, JWK};
 use ssi_jws::VerificationWarnings;
 
 use crate::{Error, LinkedDataDocument, LinkedDataProofOptions, Proof, ProofSuiteType};
+
+#[derive(thiserror::Error, Debug)]
+pub enum RSSVerificationError {
+    #[error("RSS signature error: {0}")]
+    WrappedRSignatureError(#[from] RSignatureError),
+    #[error("RSS signature verification error: {0}")]
+    WrappedRSVerifyResultError(#[from] RSVerifyResult),
+}
 
 pub struct RSSSignature2023;
 impl RSSSignature2023 {
@@ -47,8 +59,7 @@ impl RSSSignature2023 {
 
         let msgs = document
             .to_dataset_for_signing(None, context_loader)
-            .await
-            .unwrap()
+            .await?
             .quads()
             .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
             .collect::<Vec<_>>();
@@ -85,26 +96,25 @@ impl RSSSignature2023 {
 
         let msgs = document
             .to_dataset_for_signing(None, context_loader)
-            .await
-            .unwrap()
+            .await?
             .quads()
             .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
             .collect::<Vec<_>>();
 
         let res = RSignature::verifyrsignature(
-            // TODO: handle error properly with conversion
-            &jwk.try_into().map_err(|e| Error::MissingKey)?,
-            &RSignature::from_hex(sig_hex).map_err(|e| Error::MissingKey)?,
+            &jwk.try_into()
+                .map_err(|e: RSSKeyError| <RSSKeyError as Into<ssi_jwk::error::Error>>::into(e))?,
+            &RSignature::from_hex(sig_hex)
+                .map_err(|e| <RSignatureError as Into<RSSVerificationError>>::into(e))?,
             &msgs,
             &(1..=msgs.len()).collect::<Vec<usize>>(),
         );
 
         println!("{}", res);
 
-        // TODO: handle error properly with conversion
         match res {
-            ps_sig::rsssig::RSVerifyResult::Valid => Ok(vec![]),
-            _ => Err(Error::MissingKey),
+            RSVerifyResult::Valid => Ok(vec![]),
+            err @ _ => Err(<RSVerifyResult as Into<RSSVerificationError>>::into(err).into()),
         }
     }
 }

@@ -7,26 +7,14 @@ pub const OKP_CURVE: &str = "RSSKey2023";
 /// Error type for RSS jwk keys.
 #[derive(Error, Debug)]
 pub enum RSSKeyError {
-    #[error("Unrecognised Params varient in JWK, expect OctetParams, got: {0:?}")]
+    #[error("Unrecognised Params varient in JWK, expect OctetParams, found: {0:?}")]
     UnexpectedJWKParamsVarient(JWKParams),
     #[error("Private key missing from JWK.")]
     MissingPrivateKey,
-    #[error("Wrapped PKrss public key error: {0}")]
-    WrappedPKrssError(PKrssError),
-    #[error("Wrapped SKrss private key error: {0}")]
-    WrappedSKrssError(SKrssError),
-}
-
-impl From<PKrssError> for RSSKeyError {
-    fn from(value: PKrssError) -> Self {
-        RSSKeyError::WrappedPKrssError(value)
-    }
-}
-
-impl From<SKrssError> for RSSKeyError {
-    fn from(value: SKrssError) -> Self {
-        RSSKeyError::WrappedSKrssError(value)
-    }
+    #[error("PKrss public key error: {0}")]
+    WrappedPKrssError(#[from] PKrssError),
+    #[error("SKrss private key error: {0}")]
+    WrappedSKrssError(#[from] SKrssError),
 }
 
 impl From<&PKrss> for Base64urlUInt {
