@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use ps_sig::{
     keys::RSSKeyPair,
     rsssig::{RSVerifyResult, RSignature, RSignatureError},
@@ -7,9 +5,10 @@ use ps_sig::{
 };
 use serde_json::Value;
 use ssi_dids::did_resolve::{resolve_vm, DIDResolver};
-use ssi_json_ld::ContextLoader;
+use ssi_json_ld::{json_to_dataset, ContextLoader};
 use ssi_jwk::{rss::RSSKeyError, JWK};
 use ssi_jws::VerificationWarnings;
+use std::collections::{HashMap, HashSet};
 
 use crate::{Error, LinkedDataDocument, LinkedDataProofOptions, Proof, ProofSuiteType};
 
@@ -36,27 +35,6 @@ impl RSSSignature2023 {
             .with_options(options)
             .with_properties(extra_proof_properties);
 
-        // println!(
-        //     "{:?}",
-        //     document
-        //         .to_dataset_for_signing(None, context_loader)
-        //         .await
-        //         .unwrap()
-        // );
-        // println!(
-        //     "{}",
-        //     serde_json::to_string_pretty(&document.to_value().unwrap()).unwrap()
-        // );
-
-        for q in document
-            .to_dataset_for_signing(None, context_loader)
-            .await
-            .unwrap()
-            .quads()
-        {
-            println!("{}", q);
-        }
-
         let msgs = document
             .to_dataset_for_signing(None, context_loader)
             .await?
@@ -67,6 +45,7 @@ impl RSSSignature2023 {
         let rss_keys: RSSKeyPair = key
             .try_into()
             .map_err(|err: RSSKeyError| ssi_jwk::Error::from(err))?;
+
         let sig = RSignature::new(&msgs, &rss_keys.private_key);
         proof.proof_value = Some(sig.to_hex());
         Ok(proof)
@@ -94,11 +73,76 @@ impl RSSSignature2023 {
         }
         let jwk = vm.public_key_jwk.ok_or(Error::MissingKey)?;
 
-        let msgs = document
+        let dataset_disclosed = document
             .to_dataset_for_signing(None, context_loader)
-            .await?
+            .await?;
+
+        let disclosed_set =
+            &dataset_disclosed
+                .quads()
+                .map(|q| q.to_string())
+                .fold(HashSet::new(), |mut set, q| {
+                    set.insert(q);
+                    set
+                });
+
+        // Mark null values in a json Value
+        fn mark_null(val: Value, null_marker: &str) -> Value {
+            match val {
+                Value::Null => Value::String(null_marker.to_string()),
+                Value::Object(mut map) => {
+                    if map.contains_key("proof") {
+                        map.remove("proof").unwrap();
+                    }
+                    Value::Object(
+                        map.into_iter()
+                            .map(|(k, v)| (k, mark_null(v, NULL_MARKER)))
+                            .collect(),
+                    )
+                }
+                val @ _ => val,
+            }
+        }
+        const NULL_MARKER: &str = "__12345__";
+        let doc_value_map = document.to_value().unwrap();
+        let null_marked_map = mark_null(doc_value_map.clone(), NULL_MARKER);
+        // Convert null_marked map to rdf quads
+        let json = ssi_json_ld::syntax::to_value_with(null_marked_map, Default::default).unwrap();
+        let null_marked_dataset = json_to_dataset(json, context_loader, None).await.unwrap();
+
+        // print for debugging only
+        for q in dataset_disclosed.quads() {
+            println!("{}", q);
+        }
+        for q in null_marked_dataset.quads() {
+            println!("{}", q);
+        }
+
+        // Test each of quads_full for membership of disclosed_set
+        let inferred_idxs = &null_marked_dataset
             .quads()
-            .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
+            .enumerate()
+            .filter_map(|(i, q)| {
+                if disclosed_set.contains(&q.to_string()) {
+                    // RSS uses 1-indexing
+                    Some(i + 1)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<usize>>();
+        println!("{:?}", inferred_idxs);
+
+        let msgs = null_marked_dataset
+            .quads()
+            .enumerate()
+            .map(|(i, q)| {
+                if inferred_idxs.contains(&(i + 1)) {
+                    FieldElement::from_msg_hash(q.to_string().as_bytes())
+                } else {
+                    FieldElement::zero()
+                }
+            })
             .collect::<Vec<_>>();
 
         let res = RSignature::verifyrsignature(
@@ -107,7 +151,7 @@ impl RSSSignature2023 {
             &RSignature::from_hex(sig_hex)
                 .map_err(|e| <RSignatureError as Into<RSSVerificationError>>::into(e))?,
             &msgs,
-            &(1..=msgs.len()).collect::<Vec<usize>>(),
+            &inferred_idxs,
         );
 
         println!("{}", res);

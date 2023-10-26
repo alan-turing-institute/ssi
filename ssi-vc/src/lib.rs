@@ -1840,9 +1840,12 @@ fn jwt_matches(
 pub(crate) mod tests {
     use super::*;
     use chrono::Duration;
+    use ps_sig::{rsssig::RSignature, FieldElement};
     use serde_json::json;
     use ssi_dids::{
-        did_resolve::DereferencingInputMetadata, example::DIDExample, VerificationMethodMap,
+        did_resolve::{resolve_vm, DereferencingInputMetadata},
+        example::DIDExample,
+        VerificationMethodMap,
     };
     use ssi_json_ld::urdna2015;
     use ssi_jws::sign_bytes_b64;
@@ -3801,7 +3804,7 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
     }
 
     #[async_std::test]
-    async fn rss_credential_issue() {
+    async fn rss_credential_issue_verify() {
         let vc_str = r###"{
             "@context": [
               "https://www.w3.org/2018/credentials/v1",
@@ -3831,7 +3834,9 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
         let mut vc: Credential = Credential::from_json_unsigned(vc_str).unwrap();
 
         let key: JWK = serde_json::from_str(JWK_JSON_RSS).unwrap();
-        // let key: JWK = generate_keys_jwk(20, &Params::new("test".to_string().as_bytes())).unwrap();
+        // use ps_sig::keys::Params;
+        // use ssi_jwk::rss::generate_keys_jwk;
+        // let key: JWK = generate_keys_jwk(15, &Params::new("test".to_string().as_bytes())).unwrap();
         // println!("{}", serde_json::to_string_pretty(&key).unwrap());
 
         let issue_options = LinkedDataProofOptions {
@@ -3846,6 +3851,119 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
         vc.add_proof(proof);
         // println!("{}", serde_json::to_string_pretty(&vc).unwrap());
 
-        vc.verify(None, &DIDExample, &mut context_loader).await;
+        let res = vc.verify(None, &DIDExample, &mut context_loader).await;
+        assert!(res.errors.is_empty());
+    }
+
+    #[async_std::test]
+    async fn rss_credential_issue_redact_verify() {
+        let vc_str = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2020-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "height": 1.8,
+                "weight": 70,
+                "nationality": "France",
+                "given_name": "Ed",
+                "family_name": "Creden",
+                "issuing_country": "US",
+                "birth_date": "1958-07-17",
+                "age_in_years": 30,
+                "age_birth_year": 1958
+              }
+            }
+          }"###;
+        let mut vc: Credential = Credential::from_json_unsigned(vc_str).unwrap();
+
+        let key: JWK = serde_json::from_str(JWK_JSON_RSS).unwrap();
+
+        let issue_options = LinkedDataProofOptions {
+            verification_method: Some(URI::String("did:example:rss#key1".to_string())),
+            ..Default::default()
+        };
+        let mut context_loader = ssi_json_ld::ContextLoader::default();
+        let proof = vc
+            .generate_proof(&key, &issue_options, &DIDExample, &mut context_loader)
+            .await
+            .unwrap();
+        vc.add_proof(proof);
+
+        let dataset = vc
+            .to_dataset_for_signing(None, &mut context_loader)
+            .await
+            .unwrap();
+        let msgs = dataset
+            .quads()
+            .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
+            .collect::<Vec<_>>();
+
+        // holder discloses information at idxs
+        // name, surname, nationality, birthdate, height, weoight, agebirthyear
+        let idxs = [1, 2, 3, 4, 5, 6, 9, 12];
+        if let Some(proofs) = vc.proof.as_mut() {
+            match proofs {
+                OneOrMany::One(proof) => {
+                    // parse issuers PK from the proof on the signed vc
+                    let sig_hex = proof.proof_value.as_ref().unwrap();
+                    let verification_method = proof.verification_method.as_ref().unwrap();
+                    let vm = resolve_vm(verification_method, &DIDExample).await.unwrap();
+                    let jwk = vm.public_key_jwk.unwrap();
+                    let d_sig = RSignature::from_hex(&sig_hex).unwrap().derive_signature(
+                        &jwk.try_into().unwrap(),
+                        msgs.as_slice(),
+                        &idxs,
+                    );
+                    println!("here");
+                    (*proof).proof_value = Some(d_sig.to_hex());
+                }
+                OneOrMany::Many(_) => unimplemented!(),
+            };
+        }
+
+        // redact information from vc
+        let redacted_vc_str = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2020-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "height": null,
+                "weight": null,
+                "nationality": null,
+                "given_name": null,
+                "family_name": null,
+                "issuing_country": "US",
+                "birth_date": null,
+                "age_in_years": 30,
+                "age_birth_year": null
+              }
+            }
+          }"###;
+        let mut redacted_vc: Credential = Credential::from_json_unsigned(redacted_vc_str).unwrap();
+        redacted_vc.proof = vc.proof;
+
+        let res = redacted_vc
+            .verify(None, &DIDExample, &mut context_loader)
+            .await;
+
+        assert!(res.errors.is_empty());
     }
 }
