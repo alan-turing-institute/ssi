@@ -100,7 +100,7 @@ pub enum Error {
     UnexpectedCryptosuite(String, String),
     #[cfg(feature = "rss")]
     #[error(transparent)]
-    RSSVerify(#[from] crate::suites::rss::RSSVerificationError),
+    RSS(#[from] crate::suites::rss::RSSError),
 }
 
 impl From<ssi_jwk::Error> for Error {

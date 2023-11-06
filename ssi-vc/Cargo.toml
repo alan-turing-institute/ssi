@@ -8,6 +8,11 @@ description = "Implementation of Verifiable Credentials and Presentations for th
 repository = "https://github.com/spruceid/ssi/"
 documentation = "https://docs.rs/ssi-vc/"
 
+[features]
+default = ["rss"]
+## enable Redactable Signature Scheme (RSS) Proofs
+rss = ["ssi-ldp/rss"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

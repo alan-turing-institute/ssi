@@ -8,17 +8,20 @@ mod cacao;
 pub mod revocation;
 
 use cacao::BindingDelegation;
+use ps_sig::rsssig::RSignature;
+use ps_sig::FieldElement;
 pub use ssi_core::{one_or_many::OneOrMany, uri::URI};
-use ssi_dids::did_resolve::{resolve_key, DIDResolver};
+use ssi_dids::did_resolve::{resolve_key, resolve_vm, DIDResolver};
 pub use ssi_dids::VerificationRelationship as ProofPurpose;
 use ssi_json_ld::parse_ld_context;
 use ssi_json_ld::{json_to_dataset, rdf::DataSet, ContextLoader};
 use ssi_jwk::{JWTKeys, JWK};
 use ssi_jws::Header;
 pub use ssi_jwt::NumericDate;
+use ssi_ldp::rss::{infer_disclosed_idxs, InferredDataset};
 use ssi_ldp::{
     assert_local, Check, Error as LdpError, LinkedDataDocument, LinkedDataProofs, Proof,
-    ProofPreparation,
+    ProofPreparation, ProofSuiteType,
 };
 pub use ssi_ldp::{Context, LinkedDataProofOptions, VerificationResult};
 
@@ -1085,6 +1088,77 @@ impl Credential {
         }
         result.checks.push(Check::Status);
         result
+    }
+
+    /// Selectively disclose a subset of the credential subject fields whilst maintaining
+    /// verifiability (applicable to Verifiable Credentials with a an RSSSignature2023 type proof). A
+    /// copy of the credential (with or without proofs) is passed in with a partially masked `CredentialSubject` json map.
+    /// Fields are masked by setting them to `serde_json::value::Value::Null`.
+    #[cfg(feature = "rss")]
+    pub async fn rss_redact(
+        &mut self,
+        mut masked_copy: Credential,
+        resolver: &dyn DIDResolver,
+        context_loader: &mut ContextLoader,
+    ) -> Result<(), LdpError> {
+        use ssi_jwk::rss::RSSKeyError;
+        use ssi_ldp::rss::RSSError;
+
+        // TODO: check mask differs from self only by valid masking
+        // 1. make copy of self with proof set to None
+        // 2. set all of self_copy.credential_subject -> Value::Null
+        // 3. set masked_copy.proof = None
+        // 4. set all of masked_copy.credential_subject -> Value::Null
+        // test 2 == 4
+
+        // Generate rss signing input
+        let dataset = self.to_dataset_for_signing(None, context_loader).await?;
+        let msgs = dataset
+            .quads()
+            .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
+            .collect::<Vec<_>>();
+
+        // Pass unsigned_mask through idx inference algorithm
+        let InferredDataset { inferred_idxs, .. } =
+            infer_disclosed_idxs(&masked_copy, context_loader).await?;
+
+        // Edit proof to be holder's derived proof
+        if let Some(proofs) = self.proof.as_mut() {
+            match proofs {
+                OneOrMany::One(proof) => {
+                    if proof.type_ != ProofSuiteType::RSSSignature2023 {
+                        return Err(RSSError::InvalidProofType(proof.type_.clone()).into());
+                    }
+                    // parse issuers PK from the proof on the signed vc
+                    let sig_hex = proof
+                        .proof_value
+                        .as_ref()
+                        .ok_or(LdpError::MissingProofSignature)?;
+                    let verification_method = proof
+                        .verification_method
+                        .as_ref()
+                        .ok_or(LdpError::MissingVerificationMethod)?;
+                    let vm = resolve_vm(verification_method, resolver).await?;
+                    let jwk = vm.public_key_jwk.ok_or(LdpError::MissingKey)?;
+                    let d_sig = RSignature::from_hex(&sig_hex)
+                        .map_err(|err| <RSSError as Into<LdpError>>::into(err.into()))?
+                        .derive_signature(
+                            &jwk.try_into().map_err(|err: RSSKeyError| {
+                                <RSSKeyError as Into<ssi_jwk::Error>>::into(err)
+                            })?,
+                            msgs.as_slice(),
+                            &inferred_idxs,
+                        );
+                    (*proof).proof_value = Some(d_sig.to_hex());
+                }
+                OneOrMany::Many(_) => unimplemented!(),
+            };
+        }
+
+        // Add derived proof to usigned_mask
+        masked_copy.proof = self.proof.clone();
+        *self = masked_copy;
+        Ok(())
     }
 }
 
@@ -3888,7 +3962,6 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
             }
           }"###;
         let mut vc: Credential = Credential::from_json_unsigned(vc_str).unwrap();
-
         let key: JWK = serde_json::from_str(JWK_JSON_RSS).unwrap();
 
         let issue_options = LinkedDataProofOptions {
@@ -3901,16 +3974,6 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
             .await
             .unwrap();
         vc.add_proof(proof);
-
-        // holders actions
-        let dataset = vc
-            .to_dataset_for_signing(None, &mut context_loader)
-            .await
-            .unwrap();
-        let msgs = dataset
-            .quads()
-            .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
-            .collect::<Vec<_>>();
 
         // redact information from vc
         let redacted_vc_str = r###"{
@@ -3940,40 +4003,17 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
             }
           }"###;
         // produce redacted vc from redacted json
-        let mut redacted_vc: Credential = Credential::from_json_unsigned(redacted_vc_str).unwrap();
+        let unsigned_mask: Credential = Credential::from_json_unsigned(redacted_vc_str).unwrap();
+        vc.rss_redact(unsigned_mask, &DIDExample, &mut context_loader)
+            .await
+            .unwrap();
 
-        // pass redacted json through idx inference algorithm
-        let InferredDataset { inferred_idxs, .. } =
-            infer_disclosed_idxs(&redacted_vc, &mut context_loader)
-                .await
-                .unwrap();
+        println!(
+            "vc after selective disclosure:\n {}",
+            serde_json::to_string_pretty(&vc).unwrap()
+        );
 
-        // edit proof to be holder's derived proof
-        if let Some(proofs) = vc.proof.as_mut() {
-            match proofs {
-                OneOrMany::One(proof) => {
-                    // parse issuers PK from the proof on the signed vc
-                    let sig_hex = proof.proof_value.as_ref().unwrap();
-                    let verification_method = proof.verification_method.as_ref().unwrap();
-                    let vm = resolve_vm(verification_method, &DIDExample).await.unwrap();
-                    let jwk = vm.public_key_jwk.unwrap();
-                    let d_sig = RSignature::from_hex(&sig_hex).unwrap().derive_signature(
-                        &jwk.try_into().unwrap(),
-                        msgs.as_slice(),
-                        &inferred_idxs,
-                    );
-                    (*proof).proof_value = Some(d_sig.to_hex());
-                }
-                OneOrMany::Many(_) => unimplemented!(),
-            };
-        }
-
-        // add derived proof to redacted vc
-        redacted_vc.proof = vc.proof;
-
-        let res = redacted_vc
-            .verify(None, &DIDExample, &mut context_loader)
-            .await;
+        let res = vc.verify(None, &DIDExample, &mut context_loader).await;
 
         assert!(res.errors.is_empty());
     }

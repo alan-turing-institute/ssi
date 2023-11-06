@@ -16,7 +16,9 @@ use std::collections::{HashMap, HashSet};
 use crate::{Error, LinkedDataDocument, LinkedDataProofOptions, Proof, ProofSuiteType};
 
 #[derive(thiserror::Error, Debug)]
-pub enum RSSVerificationError {
+pub enum RSSError {
+    #[error("Invalid proof type. Expected RSSSignature2023, found: {0:?}")]
+    InvalidProofType(ProofSuiteType),
     #[error("RSS signature error: {0}")]
     WrappedRSignatureError(#[from] RSignatureError),
     #[error("RSS signature verification error: {0}")]
@@ -100,7 +102,7 @@ impl RSSSignature2023 {
             &jwk.try_into()
                 .map_err(|e: RSSKeyError| <RSSKeyError as Into<ssi_jwk::error::Error>>::into(e))?,
             &RSignature::from_hex(sig_hex)
-                .map_err(|e| <RSignatureError as Into<RSSVerificationError>>::into(e))?,
+                .map_err(|e| <RSignatureError as Into<RSSError>>::into(e))?,
             &msgs,
             &inferred_idxs,
         );
@@ -109,7 +111,7 @@ impl RSSSignature2023 {
 
         match res {
             RSVerifyResult::Valid => Ok(vec![]),
-            err @ _ => Err(<RSVerifyResult as Into<RSSVerificationError>>::into(err).into()),
+            err @ _ => Err(<RSVerifyResult as Into<RSSError>>::into(err).into()),
         }
     }
 }
@@ -142,6 +144,7 @@ pub async fn infer_disclosed_idxs(
         match val {
             Value::Null => Value::String(null_marker.to_string()),
             Value::Object(mut map) => {
+                // TODO: this is specific to credentials, and this crate should generalise above them
                 if map.contains_key("proof") {
                     map.remove("proof").unwrap();
                 }
@@ -151,6 +154,7 @@ pub async fn infer_disclosed_idxs(
                         .collect(),
                 )
             }
+            // TODO: Arrays are not handled here, throw Err if encountered?
             val @ _ => val,
         }
     }
