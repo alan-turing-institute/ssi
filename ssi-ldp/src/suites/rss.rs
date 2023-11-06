@@ -1,8 +1,11 @@
+use grdf::HashDataset;
+use iref::IriBuf;
 use ps_sig::{
     keys::RSSKeyPair,
     rsssig::{RSVerifyResult, RSignature, RSignatureError},
     FieldElement,
 };
+use rdf_types::{Subject, Term};
 use serde_json::Value;
 use ssi_dids::did_resolve::{resolve_vm, DIDResolver};
 use ssi_json_ld::{json_to_dataset, ContextLoader};
@@ -41,6 +44,7 @@ impl RSSSignature2023 {
             .quads()
             .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
             .collect::<Vec<_>>();
+        println!("{:?}", msgs.len());
 
         let rss_keys: RSSKeyPair = key
             .try_into()
@@ -73,64 +77,11 @@ impl RSSSignature2023 {
         }
         let jwk = vm.public_key_jwk.ok_or(Error::MissingKey)?;
 
-        let dataset_disclosed = document
-            .to_dataset_for_signing(None, context_loader)
-            .await?;
+        let InferredDataset {
+            null_marked_dataset,
+            inferred_idxs,
+        } = infer_disclosed_idxs(document, context_loader).await?;
 
-        let disclosed_set =
-            &dataset_disclosed
-                .quads()
-                .map(|q| q.to_string())
-                .fold(HashSet::new(), |mut set, q| {
-                    set.insert(q);
-                    set
-                });
-
-        // Mark null values in a json Value
-        fn mark_null(val: Value, null_marker: &str) -> Value {
-            match val {
-                Value::Null => Value::String(null_marker.to_string()),
-                Value::Object(mut map) => {
-                    if map.contains_key("proof") {
-                        map.remove("proof").unwrap();
-                    }
-                    Value::Object(
-                        map.into_iter()
-                            .map(|(k, v)| (k, mark_null(v, NULL_MARKER)))
-                            .collect(),
-                    )
-                }
-                val @ _ => val,
-            }
-        }
-        const NULL_MARKER: &str = "__12345__";
-        let doc_value_map = document.to_value().unwrap();
-        let null_marked_map = mark_null(doc_value_map.clone(), NULL_MARKER);
-        // Convert null_marked map to rdf quads
-        let json = ssi_json_ld::syntax::to_value_with(null_marked_map, Default::default).unwrap();
-        let null_marked_dataset = json_to_dataset(json, context_loader, None).await.unwrap();
-
-        // print for debugging only
-        for q in dataset_disclosed.quads() {
-            println!("{}", q);
-        }
-        for q in null_marked_dataset.quads() {
-            println!("{}", q);
-        }
-
-        // Test each of quads_full for membership of disclosed_set
-        let inferred_idxs = &null_marked_dataset
-            .quads()
-            .enumerate()
-            .filter_map(|(i, q)| {
-                if disclosed_set.contains(&q.to_string()) {
-                    // RSS uses 1-indexing
-                    Some(i + 1)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<usize>>();
         println!("{:?}", inferred_idxs);
 
         let msgs = null_marked_dataset
@@ -161,4 +112,80 @@ impl RSSSignature2023 {
             err @ _ => Err(<RSVerifyResult as Into<RSSVerificationError>>::into(err).into()),
         }
     }
+}
+
+pub struct InferredDataset {
+    pub inferred_idxs: Vec<usize>,
+    pub null_marked_dataset: HashDataset<Subject, IriBuf, Term>,
+}
+
+const NULL_MARKER: &str = "__12345__";
+pub async fn infer_disclosed_idxs(
+    document: &(dyn LinkedDataDocument + Sync),
+    context_loader: &mut ContextLoader,
+) -> Result<InferredDataset, Error> {
+    let dataset_disclosed = document
+        .to_dataset_for_signing(None, context_loader)
+        .await?;
+
+    let disclosed_set =
+        &dataset_disclosed
+            .quads()
+            .map(|q| q.to_string())
+            .fold(HashSet::new(), |mut set, q| {
+                set.insert(q);
+                set
+            });
+
+    // Mark null values in a json Value
+    fn mark_null(val: Value, null_marker: &str) -> Value {
+        match val {
+            Value::Null => Value::String(null_marker.to_string()),
+            Value::Object(mut map) => {
+                if map.contains_key("proof") {
+                    map.remove("proof").unwrap();
+                }
+                Value::Object(
+                    map.into_iter()
+                        .map(|(k, v)| (k, mark_null(v, NULL_MARKER)))
+                        .collect(),
+                )
+            }
+            val @ _ => val,
+        }
+    }
+
+    let doc_value_map = document.to_value().unwrap();
+    let null_marked_map = mark_null(doc_value_map.clone(), NULL_MARKER);
+    // Convert null_marked map to rdf quads
+    let json = ssi_json_ld::syntax::to_value_with(null_marked_map, Default::default).unwrap();
+    let null_marked_dataset = json_to_dataset(json, context_loader, None).await.unwrap();
+
+    // print for debugging only
+    for q in dataset_disclosed.quads() {
+        println!("{}", q);
+    }
+    println!("\n\n");
+    for q in null_marked_dataset.quads() {
+        println!("{}", q);
+    }
+
+    // Test each of quads_full for membership of disclosed_set
+    let inferred_idxs = null_marked_dataset
+        .quads()
+        .enumerate()
+        .filter_map(|(i, q)| {
+            if disclosed_set.contains(&q.to_string()) {
+                // RSS uses 1-indexing
+                Some(i + 1)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<usize>>();
+
+    Ok(InferredDataset {
+        inferred_idxs,
+        null_marked_dataset,
+    })
 }

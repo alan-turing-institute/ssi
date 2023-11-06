@@ -1849,7 +1849,10 @@ pub(crate) mod tests {
     };
     use ssi_json_ld::urdna2015;
     use ssi_jws::sign_bytes_b64;
-    use ssi_ldp::{ProofSuite, ProofSuiteType};
+    use ssi_ldp::{
+        rss::{infer_disclosed_idxs, InferredDataset},
+        ProofSuite, ProofSuiteType,
+    };
 
     #[test]
     fn numeric_date() {
@@ -3857,6 +3860,7 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
 
     #[async_std::test]
     async fn rss_credential_issue_redact_verify() {
+        // issuers actions
         let vc_str = r###"{
             "@context": [
               "https://www.w3.org/2018/credentials/v1",
@@ -3898,6 +3902,7 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
             .unwrap();
         vc.add_proof(proof);
 
+        // holders actions
         let dataset = vc
             .to_dataset_for_signing(None, &mut context_loader)
             .await
@@ -3906,29 +3911,6 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
             .quads()
             .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
             .collect::<Vec<_>>();
-
-        // holder discloses information at idxs
-        // name, surname, nationality, birthdate, height, weoight, agebirthyear
-        let idxs = [1, 2, 3, 4, 5, 6, 9, 12];
-        if let Some(proofs) = vc.proof.as_mut() {
-            match proofs {
-                OneOrMany::One(proof) => {
-                    // parse issuers PK from the proof on the signed vc
-                    let sig_hex = proof.proof_value.as_ref().unwrap();
-                    let verification_method = proof.verification_method.as_ref().unwrap();
-                    let vm = resolve_vm(verification_method, &DIDExample).await.unwrap();
-                    let jwk = vm.public_key_jwk.unwrap();
-                    let d_sig = RSignature::from_hex(&sig_hex).unwrap().derive_signature(
-                        &jwk.try_into().unwrap(),
-                        msgs.as_slice(),
-                        &idxs,
-                    );
-                    println!("here");
-                    (*proof).proof_value = Some(d_sig.to_hex());
-                }
-                OneOrMany::Many(_) => unimplemented!(),
-            };
-        }
 
         // redact information from vc
         let redacted_vc_str = r###"{
@@ -3957,7 +3939,36 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
               }
             }
           }"###;
+        // produce redacted vc from redacted json
         let mut redacted_vc: Credential = Credential::from_json_unsigned(redacted_vc_str).unwrap();
+
+        // pass redacted json through idx inference algorithm
+        let InferredDataset { inferred_idxs, .. } =
+            infer_disclosed_idxs(&redacted_vc, &mut context_loader)
+                .await
+                .unwrap();
+
+        // edit proof to be holder's derived proof
+        if let Some(proofs) = vc.proof.as_mut() {
+            match proofs {
+                OneOrMany::One(proof) => {
+                    // parse issuers PK from the proof on the signed vc
+                    let sig_hex = proof.proof_value.as_ref().unwrap();
+                    let verification_method = proof.verification_method.as_ref().unwrap();
+                    let vm = resolve_vm(verification_method, &DIDExample).await.unwrap();
+                    let jwk = vm.public_key_jwk.unwrap();
+                    let d_sig = RSignature::from_hex(&sig_hex).unwrap().derive_signature(
+                        &jwk.try_into().unwrap(),
+                        msgs.as_slice(),
+                        &inferred_idxs,
+                    );
+                    (*proof).proof_value = Some(d_sig.to_hex());
+                }
+                OneOrMany::Many(_) => unimplemented!(),
+            };
+        }
+
+        // add derived proof to redacted vc
         redacted_vc.proof = vc.proof;
 
         let res = redacted_vc
