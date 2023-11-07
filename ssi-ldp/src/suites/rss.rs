@@ -17,6 +17,10 @@ use crate::{Error, LinkedDataDocument, LinkedDataProofOptions, Proof, ProofSuite
 
 #[derive(thiserror::Error, Debug)]
 pub enum RSSError {
+    #[error("Information in selective disclosure mask is inconsistent with information in the original document: {0}")]
+    InconsistentValuesInMask(String),
+    #[error("Keys in selective disclosure mask map are mismatched with keys in document.")]
+    MaskKeyMismatch,
     #[error("Invalid proof type. Expected RSSSignature2023, found: {0:?}")]
     InvalidProofType(ProofSuiteType),
     #[error("RSS signature error: {0}")]
@@ -106,8 +110,6 @@ impl RSSSignature2023 {
             &msgs,
             &inferred_idxs,
         );
-
-        println!("{}", res);
 
         match res {
             RSVerifyResult::Valid => Ok(vec![]),
