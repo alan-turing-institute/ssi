@@ -11,7 +11,7 @@ documentation = "https://docs.rs/ssi-vc/"
 [features]
 default = ["rss"]
 ## enable Redactable Signature Scheme (RSS) Proofs
-rss = ["ssi-ldp/rss"]
+rss = ["ssi-ldp/rss", "dep:ps_sig"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -42,7 +42,7 @@ ssi-core = { path = "../ssi-core", version = "0.1" }
 ssi-dids = { path = "../ssi-dids", version = "0.1.1" }
 ssi-json-ld = { path = "../ssi-json-ld", version = "0.2", default-features = false }
 ssi-ldp = { path = "../ssi-ldp", version = "0.3.0", default-features = false }
-ps_sig = { path = "../../RSS" }
+ps_sig = { git = "https://github.com/alan-turing-institute/RSS.git", branch = "new_rss", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 chrono = { version = "0.4", features = ["serde"] }

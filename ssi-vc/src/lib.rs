@@ -1101,10 +1101,10 @@ impl Credential {
         resolver: &dyn DIDResolver,
         context_loader: &mut ContextLoader,
     ) -> Result<(), LdpError> {
-        use std::collections::HashSet;
-
         use ssi_jwk::rss::RSSKeyError;
         use ssi_ldp::rss::RSSError;
+        use std::collections::HashSet;
+
         // Helper function to set all values in a json map to Null (not supporting Arrays).
         fn value_to_null(val: &mut Value) {
             match val {
