@@ -77,8 +77,8 @@ impl RSSSignature2023 {
             .ok_or(Error::MissingVerificationMethod)?;
         let vm = resolve_vm(verification_method, resolver).await?;
         // TODO: update with rss type once appropriate context is available
-        if vm.type_ != "Ed25519VerificationKey2018" {
-            todo!();
+        if vm.type_ != "JsonWebSignature2020" {
+            todo!("checking vm type, found: {}", vm.type_);
             return Err(Error::VerificationMethodMismatch);
         }
         let jwk = vm.public_key_jwk.ok_or(Error::MissingKey)?;
