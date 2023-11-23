@@ -48,7 +48,10 @@ impl RSSSignature2023 {
             .to_dataset_for_signing(None, context_loader)
             .await?
             .quads()
-            .map(|q| FieldElement::from_msg_hash(q.to_string().as_bytes()))
+            .map(|q| {
+                println!("{}", q);
+                FieldElement::from_msg_hash(q.to_string().as_bytes())
+            })
             .collect::<Vec<_>>();
         println!("{:?}", msgs.len());
 
