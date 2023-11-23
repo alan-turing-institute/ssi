@@ -47,12 +47,10 @@ impl RSSSignature2023 {
             .to_dataset_for_signing(None, context_loader)
             .await?
             .quads()
-            .map(|q| {
-                println!("{}", q);
-                q.to_string()
-            })
+            .map(|q| q.to_string())
             .collect::<Vec<_>>();
         quads.sort();
+        println!("sorted quads at signing time:");
         let msgs = quads
             .into_iter()
             .map(|q| {
@@ -98,7 +96,7 @@ impl RSSSignature2023 {
             inferred_idxs,
         } = infer_disclosed_idxs(document, context_loader).await?;
 
-        println!("{:?}", inferred_idxs);
+        println!("inferred idxs: {:?}", inferred_idxs);
 
         let msgs = null_marked_dataset_quads
             .into_iter()
@@ -188,10 +186,12 @@ pub async fn infer_disclosed_idxs(
         .map(|q| q.to_string())
         .collect::<Vec<_>>();
     dataset_disclosed_quads.sort();
+    println!("sorted disclosed quads:");
     for q in dataset_disclosed_quads {
         println!("{}", q);
     }
     println!("\n\n");
+    println!("sorted null-marked quads:");
     for q in null_marked_dataset_quads.clone() {
         println!("{}", q);
     }
@@ -201,7 +201,7 @@ pub async fn infer_disclosed_idxs(
         .iter()
         .enumerate()
         .filter_map(|(i, q)| {
-            if disclosed_set.contains(&q.to_string()) {
+            if disclosed_set.contains(q) {
                 // RSS uses 1-indexing
                 Some(i + 1)
             } else {
