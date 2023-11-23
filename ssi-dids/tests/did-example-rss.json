@@ -15,7 +15,7 @@
   "verificationMethod": [
     {
       "id": "did:example:rss#key1",
-      "type": "Ed25519VerificationKey2018",
+      "type": "JsonWebSignature2020",
       "controller": "did:example:foo",
       "publicKeyJwk": {
         "kty": "OKP",

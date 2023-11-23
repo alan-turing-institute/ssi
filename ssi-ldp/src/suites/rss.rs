@@ -43,14 +43,21 @@ impl RSSSignature2023 {
         let mut proof = Proof::new(ProofSuiteType::RSSSignature2023)
             .with_options(options)
             .with_properties(extra_proof_properties);
-
-        let msgs = document
+        let mut quads = document
             .to_dataset_for_signing(None, context_loader)
             .await?
             .quads()
             .map(|q| {
                 println!("{}", q);
-                FieldElement::from_msg_hash(q.to_string().as_bytes())
+                q.to_string()
+            })
+            .collect::<Vec<_>>();
+        quads.sort();
+        let msgs = quads
+            .into_iter()
+            .map(|q| {
+                println!("{}", q);
+                FieldElement::from_msg_hash(q.as_bytes())
             })
             .collect::<Vec<_>>();
         println!("{:?}", msgs.len());
@@ -87,18 +94,18 @@ impl RSSSignature2023 {
         let jwk = vm.public_key_jwk.ok_or(Error::MissingKey)?;
 
         let InferredDataset {
-            null_marked_dataset,
+            null_marked_dataset_quads,
             inferred_idxs,
         } = infer_disclosed_idxs(document, context_loader).await?;
 
         println!("{:?}", inferred_idxs);
 
-        let msgs = null_marked_dataset
-            .quads()
+        let msgs = null_marked_dataset_quads
+            .into_iter()
             .enumerate()
             .map(|(i, q)| {
                 if inferred_idxs.contains(&(i + 1)) {
-                    FieldElement::from_msg_hash(q.to_string().as_bytes())
+                    FieldElement::from_msg_hash(q.as_bytes())
                 } else {
                     FieldElement::zero()
                 }
@@ -123,7 +130,7 @@ impl RSSSignature2023 {
 
 pub struct InferredDataset {
     pub inferred_idxs: Vec<usize>,
-    pub null_marked_dataset: HashDataset<Subject, IriBuf, Term>,
+    pub null_marked_dataset_quads: Vec<String>,
 }
 
 const NULL_MARKER: &str = "__12345__";
@@ -169,19 +176,29 @@ pub async fn infer_disclosed_idxs(
     // Convert null_marked map to rdf quads
     let json = ssi_json_ld::syntax::to_value_with(null_marked_map, Default::default).unwrap();
     let null_marked_dataset = json_to_dataset(json, context_loader, None).await.unwrap();
+    let mut null_marked_dataset_quads = null_marked_dataset
+        .quads()
+        .map(|q| q.to_string())
+        .collect::<Vec<_>>();
+    null_marked_dataset_quads.sort();
 
     // print for debugging only
-    for q in dataset_disclosed.quads() {
+    let mut dataset_disclosed_quads = dataset_disclosed
+        .quads()
+        .map(|q| q.to_string())
+        .collect::<Vec<_>>();
+    dataset_disclosed_quads.sort();
+    for q in dataset_disclosed_quads {
         println!("{}", q);
     }
     println!("\n\n");
-    for q in null_marked_dataset.quads() {
+    for q in null_marked_dataset_quads.clone() {
         println!("{}", q);
     }
 
     // Test each of quads_full for membership of disclosed_set
-    let inferred_idxs = null_marked_dataset
-        .quads()
+    let inferred_idxs = null_marked_dataset_quads
+        .iter()
         .enumerate()
         .filter_map(|(i, q)| {
             if disclosed_set.contains(&q.to_string()) {
@@ -195,6 +212,6 @@ pub async fn infer_disclosed_idxs(
 
     Ok(InferredDataset {
         inferred_idxs,
-        null_marked_dataset,
+        null_marked_dataset_quads,
     })
 }
