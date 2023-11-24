@@ -29,6 +29,20 @@ pub enum RSSError {
     WrappedRSVerifyResultError(#[from] RSVerifyResult),
 }
 
+pub async fn doc_to_sorted_quads(
+    doc: &(dyn LinkedDataDocument + Sync),
+    context_loader: &mut ContextLoader,
+) -> Result<Vec<String>, Error> {
+    let mut quads = doc
+        .to_dataset_for_signing(None, context_loader)
+        .await?
+        .quads()
+        .map(|q| q.to_string())
+        .collect::<Vec<_>>();
+    quads.sort();
+    Ok(quads)
+}
+
 pub struct RSSSignature2023;
 impl RSSSignature2023 {
     pub(crate) async fn sign(
@@ -50,16 +64,19 @@ impl RSSSignature2023 {
             .map(|q| q.to_string())
             .collect::<Vec<_>>();
         quads.sort();
-        println!("sorted quads at signing time:");
+        // println!("sorted quads at signing time:");
         let msgs = quads
             .into_iter()
             .map(|q| {
-                println!("{}", q);
+                // println!("{}", q);
                 FieldElement::from_msg_hash(q.as_bytes())
             })
             .collect::<Vec<_>>();
         println!("{:?}", msgs.len());
-
+        println!("material at sign:");
+        for q in msgs.iter() {
+            println!("{}", q);
+        }
         let rss_keys: RSSKeyPair = key
             .try_into()
             .map_err(|err: RSSKeyError| ssi_jwk::Error::from(err))?;
@@ -96,7 +113,7 @@ impl RSSSignature2023 {
             inferred_idxs,
         } = infer_disclosed_idxs(document, context_loader).await?;
 
-        println!("inferred idxs: {:?}", inferred_idxs);
+        println!("inferred idxs verify: {:?}", inferred_idxs);
 
         let msgs = null_marked_dataset_quads
             .into_iter()
@@ -109,6 +126,10 @@ impl RSSSignature2023 {
                 }
             })
             .collect::<Vec<_>>();
+        println!("material at verify:");
+        for q in msgs.iter() {
+            println!("{}", q);
+        }
 
         let res = RSignature::verifyrsignature(
             &jwk.try_into()
@@ -186,15 +207,15 @@ pub async fn infer_disclosed_idxs(
         .map(|q| q.to_string())
         .collect::<Vec<_>>();
     dataset_disclosed_quads.sort();
-    println!("sorted disclosed quads:");
-    for q in dataset_disclosed_quads {
-        println!("{}", q);
-    }
-    println!("\n\n");
-    println!("sorted null-marked quads:");
-    for q in null_marked_dataset_quads.clone() {
-        println!("{}", q);
-    }
+    // println!("sorted disclosed quads:");
+    // for q in dataset_disclosed_quads {
+    //     println!("{}", q);
+    // }
+    // println!("\n\n");
+    // println!("sorted null-marked quads:");
+    // for q in null_marked_dataset_quads.clone() {
+    //     println!("{}", q);
+    // }
 
     // Test each of quads_full for membership of disclosed_set
     let inferred_idxs = null_marked_dataset_quads
