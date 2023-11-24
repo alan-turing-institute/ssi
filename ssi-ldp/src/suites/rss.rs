@@ -1,11 +1,8 @@
-use grdf::HashDataset;
-use iref::IriBuf;
 use ps_sig::{
     keys::RSSKeyPair,
     rsssig::{RSVerifyResult, RSignature, RSignatureError},
     FieldElement,
 };
-use rdf_types::{Subject, Term};
 use serde_json::Value;
 use ssi_dids::did_resolve::{resolve_vm, DIDResolver};
 use ssi_json_ld::{json_to_dataset, ContextLoader};
@@ -29,6 +26,9 @@ pub enum RSSError {
     WrappedRSVerifyResultError(#[from] RSVerifyResult),
 }
 
+/// Create a sorted Vec of nquads represented as Strings from a reference to a LinkedDataDocument.
+/// The sort is crucial to ensure the RSS signing indicies are consistent across signing, redacting
+/// and verifying.
 pub async fn doc_to_sorted_quads(
     doc: &(dyn LinkedDataDocument + Sync),
     context_loader: &mut ContextLoader,
@@ -57,26 +57,11 @@ impl RSSSignature2023 {
         let mut proof = Proof::new(ProofSuiteType::RSSSignature2023)
             .with_options(options)
             .with_properties(extra_proof_properties);
-        let mut quads = document
-            .to_dataset_for_signing(None, context_loader)
-            .await?
-            .quads()
-            .map(|q| q.to_string())
-            .collect::<Vec<_>>();
-        quads.sort();
-        // println!("sorted quads at signing time:");
+        let quads = doc_to_sorted_quads(document, context_loader).await?;
         let msgs = quads
             .into_iter()
-            .map(|q| {
-                // println!("{}", q);
-                FieldElement::from_msg_hash(q.as_bytes())
-            })
+            .map(|q| FieldElement::from_msg_hash(q.as_bytes()))
             .collect::<Vec<_>>();
-        println!("{:?}", msgs.len());
-        println!("material at sign:");
-        for q in msgs.iter() {
-            println!("{}", q);
-        }
         let rss_keys: RSSKeyPair = key
             .try_into()
             .map_err(|err: RSSKeyError| ssi_jwk::Error::from(err))?;
@@ -113,8 +98,6 @@ impl RSSSignature2023 {
             inferred_idxs,
         } = infer_disclosed_idxs(document, context_loader).await?;
 
-        println!("inferred idxs verify: {:?}", inferred_idxs);
-
         let msgs = null_marked_dataset_quads
             .into_iter()
             .enumerate()
@@ -126,10 +109,6 @@ impl RSSSignature2023 {
                 }
             })
             .collect::<Vec<_>>();
-        println!("material at verify:");
-        for q in msgs.iter() {
-            println!("{}", q);
-        }
 
         let res = RSignature::verifyrsignature(
             &jwk.try_into()
@@ -200,22 +179,6 @@ pub async fn infer_disclosed_idxs(
         .map(|q| q.to_string())
         .collect::<Vec<_>>();
     null_marked_dataset_quads.sort();
-
-    // print for debugging only
-    let mut dataset_disclosed_quads = dataset_disclosed
-        .quads()
-        .map(|q| q.to_string())
-        .collect::<Vec<_>>();
-    dataset_disclosed_quads.sort();
-    // println!("sorted disclosed quads:");
-    // for q in dataset_disclosed_quads {
-    //     println!("{}", q);
-    // }
-    // println!("\n\n");
-    // println!("sorted null-marked quads:");
-    // for q in null_marked_dataset_quads.clone() {
-    //     println!("{}", q);
-    // }
 
     // Test each of quads_full for membership of disclosed_set
     let inferred_idxs = null_marked_dataset_quads

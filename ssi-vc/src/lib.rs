@@ -1201,23 +1201,15 @@ impl Credential {
         // flattening algorithm (n-quads) ignores Null json values, so this makes sure that the
         // signing input is the correct length, with the material to be disclosed at the correct idxs).
         let msgs_quads = doc_to_sorted_quads(self, context_loader).await?;
-        // println!("quads at redact:");
-        // for q in msgs_quads.iter() {
-        //     println!("{}", q);
-        // }
         let msgs = msgs_quads
             .iter()
             .map(|q| FieldElement::from_msg_hash(q.as_bytes()))
             .collect::<Vec<_>>();
-        println!("material at redact:");
-        for q in msgs.iter() {
-            println!("{}", q);
-        }
 
         // Pass unsigned_mask through idx inference algorithm
         let InferredDataset { inferred_idxs, .. } =
             infer_disclosed_idxs(&masked_copy, context_loader).await?;
-        println!("inferred at redact {:?}", inferred_idxs);
+
         // Edit proof to be holder's derived proof
         if let Some(proofs) = self.proof.as_mut() {
             match proofs {
@@ -4027,47 +4019,7 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
 
     #[async_std::test]
     async fn rss_credential_issue_redact_verify() {
-        // let mut vc: Credential = serde_json::from_str(RSS_SIGNED_VC).unwrap();
-        let vc_str = r###"{
-            "@context": [
-              "https://www.w3.org/2018/credentials/v1",
-              "https://w3id.org/vdl/v1"
-            ],
-            "type": [
-              "VerifiableCredential",
-              "Iso18013DriversLicense"
-            ],
-            "issuer": "did:example:rss",
-            "issuanceDate": "2020-08-19T21:41:50Z",
-            "credentialSubject": {
-              "id": "did:example:12347abcd",
-              "Iso18013DriversLicense": {
-                "height": 1.8,
-                "weight": 70,
-                "nationality": "France",
-                "given_name": "Test",
-                "family_name": "A",
-                "issuing_country": "US",
-                "birth_date": "1958-07-17",
-                "age_in_years": 30,
-                "age_birth_year": 1958
-              }
-            }
-          }"###;
-        let mut vc: Credential = Credential::from_json_unsigned(vc_str).unwrap();
-        let key: JWK = serde_json::from_str(JWK_JSON_RSS).unwrap();
-        let issue_options = LinkedDataProofOptions {
-            // The specification of a vm isn't compulsory in this case, where did:example:rss has only
-            // one vm.
-            verification_method: Some(URI::String("did:example:rss#key1".to_string())),
-            ..Default::default()
-        };
-        let mut context_loader = ssi_json_ld::ContextLoader::default();
-        let proof = vc
-            .generate_proof(&key, &issue_options, &DIDExample, &mut context_loader)
-            .await
-            .unwrap();
-        vc.add_proof(proof);
+        let mut vc: Credential = serde_json::from_str(RSS_SIGNED_VC).unwrap();
 
         // redact information from vc
         let vc_disclosure_mask = r###"{
@@ -4103,13 +4055,7 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
             .await
             .unwrap();
 
-        // println!(
-        //     "vc after selective disclosure:\n {}",
-        //     serde_json::to_string_pretty(&vc).unwrap()
-        // );
-
         let res = vc.verify(None, &DIDExample, &mut context_loader).await;
-        println!("{:?}", res.errors);
         assert!(res.errors.is_empty());
     }
 
