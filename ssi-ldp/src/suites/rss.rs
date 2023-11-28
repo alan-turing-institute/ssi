@@ -48,7 +48,6 @@ impl RSSSignature2023 {
     pub(crate) async fn sign(
         document: &(dyn LinkedDataDocument + Sync),
         options: &LinkedDataProofOptions,
-        resolver: &dyn DIDResolver,
         context_loader: &mut ContextLoader,
         key: &JWK,
         extra_proof_properties: Option<HashMap<String, Value>>,

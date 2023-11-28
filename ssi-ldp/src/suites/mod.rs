@@ -538,7 +538,6 @@ impl ProofSuite for ProofSuiteType {
                 RSSSignature2023::sign(
                     document,
                     options,
-                    resolver,
                     context_loader,
                     key,
                     extra_proof_properties,
