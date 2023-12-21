@@ -152,23 +152,26 @@ pub async fn infer_disclosed_idxs(
     fn mark_null(val: Value, null_marker: &str) -> Value {
         match val {
             Value::Null => Value::String(null_marker.to_string()),
-            Value::Object(mut map) => {
-                // TODO: this is specific to credentials, and this crate should generalise above them
-                if map.contains_key("proof") {
-                    map.remove("proof").unwrap();
-                }
-                Value::Object(
-                    map.into_iter()
-                        .map(|(k, v)| (k, mark_null(v, NULL_MARKER)))
-                        .collect(),
-                )
-            }
+            Value::Object(map) => Value::Object(
+                map.into_iter()
+                    .map(|(k, v)| (k, mark_null(v, NULL_MARKER)))
+                    .collect(),
+            ),
             // TODO: Arrays are not handled here, throw Err if encountered?
             val @ _ => val,
         }
     }
 
-    let doc_value_map = document.to_value().unwrap();
+    let mut doc_value_map = document.to_value().unwrap();
+    // TODO: this is specific to `ssi-vc::Credential`, and this crate should generalise above.
+    // Should the `LinkedDataDocument::to_value()` impl for `ssi-vc::Credential` remove the proof
+    // before converting to a json value? This would align with the removal of the proof field in the
+    // `LinkedDataDocument::to_dataset_for_signing(..)`.
+    if let Value::Object(map) = &mut doc_value_map {
+        if map.contains_key("proof") {
+            map.remove("proof").unwrap();
+        }
+    }
     let null_marked_map = mark_null(doc_value_map.clone(), NULL_MARKER);
     // Convert null_marked map to rdf quads
     let json = ssi_json_ld::syntax::to_value_with(null_marked_map, Default::default).unwrap();
