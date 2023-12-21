@@ -10,6 +10,7 @@ pub mod revocation;
 use cacao::BindingDelegation;
 use ps_sig::rsssig::RSignature;
 use ps_sig::FieldElement;
+use serde_with::{formats::PreferMany, serde_as, OneOrMany as SerdeWithOneOrMany};
 pub use ssi_core::{one_or_many::OneOrMany, uri::URI};
 use ssi_dids::did_resolve::{resolve_key, resolve_vm, DIDResolver};
 pub use ssi_dids::VerificationRelationship as ProofPurpose;
@@ -52,6 +53,7 @@ pub const DEFAULT_CONTEXT_V2: &str = "https://www.w3.org/ns/credentials/v2";
 // work around https://github.com/w3c/vc-test-suite/issues/103
 pub const ALT_DEFAULT_CONTEXT: &str = "https://w3.org/2018/credentials/v1";
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Credential {
@@ -76,6 +78,7 @@ pub struct Credential {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credential_status: Option<Status>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(deserialize_as = "Option<SerdeWithOneOrMany<_, PreferMany>>")]
     pub terms_of_use: Option<Vec<TermsOfUse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evidence: Option<OneOrMany<Evidence>>,

@@ -1,6 +1,6 @@
 [package]
 name = "ssi-vc"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["Spruce Systems, Inc."]
 license = "Apache-2.0"
@@ -42,6 +42,7 @@ ssi-core = { path = "../ssi-core", version = "0.1" }
 ssi-dids = { path = "../ssi-dids", version = "0.1.1" }
 ssi-json-ld = { path = "../ssi-json-ld", version = "0.2", default-features = false }
 ssi-ldp = { path = "../ssi-ldp", version = "0.3.0", default-features = false }
+serde_with = "2.3.2"
 ps_sig = { git = "https://github.com/alan-turing-institute/RSS.git", rev = "ec9386e125d87c5f54898b34fbe0883b3b36ffd4", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
