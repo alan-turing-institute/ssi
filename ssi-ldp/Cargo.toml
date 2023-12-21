@@ -67,7 +67,7 @@ ssi-jws = { path = "../ssi-jws", version = "0.1" }
 ssi-tzkey = { path = "../ssi-tzkey", version = "0.1", optional = true }
 ssi-caips = { path = "../ssi-caips", version = "0.1" }
 ssi-contexts = { version = "0.1.5", path = "../contexts" }
-ps_sig = { git = "https://github.com/alan-turing-institute/RSS.git", branch = "new_rss", optional = true }
+ps_sig = { git = "https://github.com/alan-turing-institute/RSS.git", rev = "ec9386e125d87c5f54898b34fbe0883b3b36ffd4", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 chrono = { version = "0.4", features = ["serde"] }

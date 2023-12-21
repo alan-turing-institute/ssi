@@ -71,7 +71,7 @@ multibase = "0.9.1"
 unsigned-varint = "0.7.1"
 num-traits = "0.2"
 num-derive = "0.3"
-ps_sig = { git = "https://github.com/alan-turing-institute/RSS.git", branch = "new_rss", optional = true }
+ps_sig = { git = "https://github.com/alan-turing-institute/RSS.git", rev = "ec9386e125d87c5f54898b34fbe0883b3b36ffd4", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"], optional = true }
