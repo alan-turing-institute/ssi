@@ -98,6 +98,9 @@ pub enum Error {
     InvalidCryptosuiteType,
     #[error("Invalid cryptosuite, expected {0} but key supports {1}")]
     UnexpectedCryptosuite(String, String),
+    #[cfg(feature = "rss")]
+    #[error(transparent)]
+    RSS(#[from] crate::suites::rss::RSSError),
 }
 
 impl From<ssi_jwk::Error> for Error {

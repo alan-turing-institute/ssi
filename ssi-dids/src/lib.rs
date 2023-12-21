@@ -1370,6 +1370,7 @@ pub mod example {
     const DOC_JSON_BAR: &str = include_str!("../tests/did-example-bar.json");
     const DOC_JSON_12345: &str = include_str!("../tests/did-example-12345.json");
     const DOC_JSON_AABB: &str = include_str!("../tests/lds-eip712-issuer.json");
+    const DOC_JSON_RSS: &str = include_str!("../tests/did-example-rss.json");
 
     // For vc-test-suite
     const DOC_JSON_TEST_ISSUER: &str = include_str!("../tests/did-example-test-issuer.json");
@@ -1411,6 +1412,7 @@ pub mod example {
                 "did:example:12345" => DOC_JSON_12345,
                 "did:example:ebfeb1f712ebc6f1c276e12ec21" => DOC_JSON_TEST_HOLDER,
                 "did:example:aaaabbbb" => DOC_JSON_AABB,
+                "did:example:rss" => DOC_JSON_RSS,
                 _ => return (ResolutionMetadata::from_error(ERROR_NOT_FOUND), None, None),
             };
             let doc: Document = match serde_json::from_str(doc_str) {

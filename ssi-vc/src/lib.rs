@@ -8,18 +8,21 @@ mod cacao;
 pub mod revocation;
 
 use cacao::BindingDelegation;
+use ps_sig::rsssig::RSignature;
+use ps_sig::FieldElement;
 use serde_with::{formats::PreferMany, serde_as, OneOrMany as SerdeWithOneOrMany};
 pub use ssi_core::{one_or_many::OneOrMany, uri::URI};
-use ssi_dids::did_resolve::{resolve_key, DIDResolver};
+use ssi_dids::did_resolve::{resolve_key, resolve_vm, DIDResolver};
 pub use ssi_dids::VerificationRelationship as ProofPurpose;
 use ssi_json_ld::parse_ld_context;
 use ssi_json_ld::{json_to_dataset, rdf::DataSet, ContextLoader};
 use ssi_jwk::{JWTKeys, JWK};
 use ssi_jws::Header;
 pub use ssi_jwt::NumericDate;
+use ssi_ldp::rss::{infer_disclosed_idxs, InferredDataset};
 use ssi_ldp::{
     assert_local, Check, Error as LdpError, LinkedDataDocument, LinkedDataProofs, Proof,
-    ProofPreparation,
+    ProofPreparation, ProofSuiteType,
 };
 pub use ssi_ldp::{Context, LinkedDataProofOptions, VerificationResult};
 
@@ -1089,6 +1092,165 @@ impl Credential {
         result.checks.push(Check::Status);
         result
     }
+
+    /// Selectively disclose a subset of the credential subject fields whilst maintaining
+    /// verifiability (applicable to Verifiable Credentials with an RSSSignature2023 type proof). A
+    /// copy of the credential (with or without proofs included) is passed in with a partially masked `CredentialSubject` json map.
+    /// Fields are masked by setting them to `serde_json::value::Value::Null`.
+    #[cfg(feature = "rss")]
+    pub async fn rss_redact(
+        &mut self,
+        mut masked_copy: Credential,
+        resolver: &dyn DIDResolver,
+        context_loader: &mut ContextLoader,
+    ) -> Result<(), LdpError> {
+        use ssi_jwk::rss::RSSKeyError;
+        use ssi_ldp::rss::{doc_to_sorted_quads, RSSError};
+        use std::collections::HashSet;
+
+        // Helper function to set all values in a json map to Null (not supporting Arrays).
+        fn value_to_null(val: &mut Value) {
+            match val {
+                Value::Null => {}
+                Value::Bool(_) | Value::String(_) | Value::Number(_) => *val = Value::Null,
+                Value::Object(ref mut map) => {
+                    map.iter_mut().for_each(|(_, v)| value_to_null(v));
+                }
+                // TODO: Arrays are not handled here, throw Err if encountered?
+                Value::Array(_) => {
+                    unimplemented!("Selective disclosure not supported for arrays.")
+                }
+            }
+        }
+
+        // Algorithm overview
+        // 1. Carry out 2 checks for consistency between the vc document (`self`) and the `masked_copy`
+        //    input argument.
+        // 2. Infer the indicies corresponding to the disclosed information in the masked copy of the
+        //    document.
+        // 3. Pass the indicies and a flattened version of the **original** document (`self`) as
+        //    signing input to the RSS signature derivation.
+        // 4. Add the new derived proof to the masked_copy credential passed in to this method.
+        // 5. Modify `self` by replacement with the signed masked_copy credential.
+
+        // Step 5. demonstrates the importance of the consistency checks in 1. - since the derived
+        // signature is signed on the original document, before the proof is attatched to the
+        // masked_copy document passed in to the method.
+
+        // Check 1: Mask differs from self only by masking of credential_subject map.
+        // 1. Make copy of self with proof set to None
+        let mut self_blank = self.clone();
+        self_blank.proof = None;
+        // 2. Set all of self_blank.credential_subject -> Value::Null
+        match self_blank.credential_subject {
+            OneOrMany::One(ref mut cs) => {
+                if let Some(ref mut map) = cs.property_set {
+                    for (_, val) in map.iter_mut() {
+                        value_to_null(val);
+                    }
+                }
+            }
+            OneOrMany::Many(_) => unimplemented!("Only single subject credentials are supported."),
+        }
+        // 3. Set masked_copy.proof = None
+        masked_copy.proof = None;
+        // 4. Set all of masked_copy_blank.credential_subject -> Value::Null
+        let mut masked_copy_blank = masked_copy.clone();
+        match masked_copy_blank.credential_subject {
+            OneOrMany::One(ref mut cs) => {
+                if let Some(ref mut map) = cs.property_set {
+                    for (_, val) in map.iter_mut() {
+                        value_to_null(val);
+                    }
+                }
+            }
+            OneOrMany::Many(_) => unimplemented!("Only single subject credentials are supported."),
+        }
+        // Test 2. == 4.
+        if masked_copy_blank != self_blank {
+            return Err(RSSError::MaskKeyMismatch.into());
+        }
+
+        // Check 2: Disclosed values in the masked_copy match the original values in self
+        // (inconsistency here would corrupt the vc and make it unverifiable, with the signature
+        // derived on different information than that in the selectively disclosed vc document).
+        // 1. Flatten both original document and masked copy.
+        let original_dataset = self.to_dataset_for_signing(None, context_loader).await?;
+        let masked_dataset = masked_copy
+            .to_dataset_for_signing(None, context_loader)
+            .await?;
+        // 2. Check for membership of the elements of the flat masked_copy in the set of elements in
+        //    the flattened original document.
+        let original_set =
+            &original_dataset
+                .quads()
+                .map(|q| q.to_string())
+                .fold(HashSet::new(), |mut set, q| {
+                    set.insert(q);
+                    set
+                });
+        masked_dataset
+            .quads()
+            .find_map(|q| {
+                if original_set.contains(&q.to_string()) {
+                    None
+                } else {
+                    Some(RSSError::InconsistentValuesInMask(q.to_string()))
+                }
+            })
+            .map_or(Ok(()), |err| Err(err))?;
+
+        // Generate rss signing input using a flattened version of the original document (the
+        // flattening algorithm (n-quads) ignores Null json values, so this makes sure that the
+        // signing input is the correct length, with the material to be disclosed at the correct idxs).
+        let msgs_quads = doc_to_sorted_quads(self, context_loader).await?;
+        let msgs = msgs_quads
+            .iter()
+            .map(|q| FieldElement::from_msg_hash(q.as_bytes()))
+            .collect::<Vec<_>>();
+
+        // Pass unsigned_mask through idx inference algorithm
+        let InferredDataset { inferred_idxs, .. } =
+            infer_disclosed_idxs(&masked_copy, context_loader).await?;
+
+        // Edit proof to be holder's derived proof
+        if let Some(proofs) = self.proof.as_mut() {
+            match proofs {
+                OneOrMany::One(proof) => {
+                    if proof.type_ != ProofSuiteType::RSSSignature2023 {
+                        return Err(RSSError::InvalidProofType(proof.type_.clone()).into());
+                    }
+                    // parse issuers PK from the proof on the signed vc
+                    let sig_hex = proof
+                        .proof_value
+                        .as_ref()
+                        .ok_or(LdpError::MissingProofSignature)?;
+                    let verification_method = proof
+                        .verification_method
+                        .as_ref()
+                        .ok_or(LdpError::MissingVerificationMethod)?;
+                    let vm = resolve_vm(verification_method, resolver).await?;
+                    let jwk = vm.public_key_jwk.ok_or(LdpError::MissingKey)?;
+                    let d_sig = RSignature::from_hex(&sig_hex)
+                        .map_err(|err| <RSSError as Into<LdpError>>::into(err.into()))?
+                        .derive_signature(
+                            &jwk.try_into().map_err(|err: RSSKeyError| {
+                                <RSSKeyError as Into<ssi_jwk::Error>>::into(err)
+                            })?,
+                            msgs.as_slice(),
+                            &inferred_idxs,
+                        );
+                    (*proof).proof_value = Some(d_sig.to_hex());
+                }
+                OneOrMany::Many(_) => unimplemented!(),
+            };
+        }
+
+        // Add derived proof to usigned_mask
+        masked_copy.proof = self.proof.clone();
+        *self = masked_copy;
+        Ok(())
+    }
 }
 
 impl CheckableStatus {
@@ -1849,7 +2011,7 @@ pub(crate) mod tests {
     };
     use ssi_json_ld::urdna2015;
     use ssi_jws::sign_bytes_b64;
-    use ssi_ldp::{ProofSuite, ProofSuiteType};
+    use ssi_ldp::{rss::RSSError, ProofSuite, ProofSuiteType};
 
     #[test]
     fn numeric_date() {
@@ -1930,6 +2092,8 @@ pub(crate) mod tests {
 
     const JWK_JSON: &str = include_str!("../../tests/rsa2048-2020-08-25.json");
     const JWK_JSON_BAR: &str = include_str!("../../tests/ed25519-2021-06-16.json");
+    const JWK_JSON_RSS: &str = include_str!("../../tests/rss-jwk-example.json");
+    const RSS_SIGNED_VC: &str = include_str!("../../tests/rss-signed-vc-example.json");
 
     #[test]
     fn credential_from_json() {
@@ -3800,5 +3964,230 @@ _:c14n0 <https://w3id.org/security#verificationMethod> <https://example.org/foo/
         assert!(verification_result.errors.is_empty());
 
         assert_eq!(sig_hex, "0xd9a03af99298b50303343ae7b89e14eb7622d64023ddb2df6c220bd5b017fa2b48ab09a6754042eeeb3785ab64f3eab1dd4fd89dbbbbd0181f135b1b938b99841c");
+    }
+
+    #[async_std::test]
+    async fn rss_credential_issue_verify() {
+        let vc_str = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2020-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "height": 1.8,
+                "weight": 70,
+                "nationality": "France",
+                "given_name": "Test",
+                "family_name": "A",
+                "issuing_country": "US",
+                "birth_date": "1958-07-17",
+                "age_in_years": 30,
+                "age_birth_year": 1958
+              }
+            }
+          }"###;
+        let mut vc: Credential = Credential::from_json_unsigned(vc_str).unwrap();
+
+        let key: JWK = serde_json::from_str(JWK_JSON_RSS).unwrap();
+        // use ps_sig::keys::Params;
+        // use ssi_jwk::rss::generate_keys_jwk;
+        // let key: JWK = generate_keys_jwk(15, &Params::new("test".to_string().as_bytes())).unwrap();
+        // println!("{}", serde_json::to_string_pretty(&key).unwrap());
+
+        let issue_options = LinkedDataProofOptions {
+            // The specification of a vm isn't compulsory in this case, where did:example:rss has only
+            // one vm.
+            verification_method: Some(URI::String("did:example:rss#key1".to_string())),
+            ..Default::default()
+        };
+        let mut context_loader = ssi_json_ld::ContextLoader::default();
+        let proof = vc
+            .generate_proof(&key, &issue_options, &DIDExample, &mut context_loader)
+            .await
+            .unwrap();
+        vc.add_proof(proof);
+        println!("{}", serde_json::to_string_pretty(&vc).unwrap());
+
+        let res = vc.verify(None, &DIDExample, &mut context_loader).await;
+        assert!(res.errors.is_empty());
+    }
+
+    #[async_std::test]
+    async fn rss_credential_issue_redact_verify() {
+        let mut vc: Credential = serde_json::from_str(RSS_SIGNED_VC).unwrap();
+
+        // redact information from vc
+        let vc_disclosure_mask = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2020-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "height": null,
+                "weight": null,
+                "nationality": null,
+                "given_name": null,
+                "family_name": null,
+                "issuing_country": "US",
+                "birth_date": null,
+                "age_in_years": 30,
+                "age_birth_year": null
+              }
+            }
+          }"###;
+        let mut context_loader = ssi_json_ld::ContextLoader::default();
+        // produce redacted vc from redacted json
+        let unsigned_mask: Credential = Credential::from_json_unsigned(vc_disclosure_mask).unwrap();
+        vc.rss_redact(unsigned_mask, &DIDExample, &mut context_loader)
+            .await
+            .unwrap();
+
+        let res = vc.verify(None, &DIDExample, &mut context_loader).await;
+        assert!(res.errors.is_empty());
+    }
+
+    #[async_std::test]
+    async fn rss_credential_redact_corrupt_mask_data() {
+        let mut vc: Credential = serde_json::from_str(RSS_SIGNED_VC).unwrap();
+        // redact information from vc
+        let vc_disclosure_mask = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2020-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "height": null,
+                "weight": null,
+                "nationality": null,
+                "given_name": null,
+                "family_name": null,
+                "issuing_country": "CORRUPT_VALUE",
+                "birth_date": null,
+                "age_in_years": 30,
+                "age_birth_year": null
+              }
+            }
+          }"###;
+        let mut context_loader = ssi_json_ld::ContextLoader::default();
+        // produce redacted vc from redacted json
+        let unsigned_mask: Credential = Credential::from_json_unsigned(vc_disclosure_mask).unwrap();
+        let redact_error = vc
+            .rss_redact(unsigned_mask, &DIDExample, &mut context_loader)
+            .await;
+
+        let _error_string =
+            "_:b1 <https://w3id.org/vdl#issuing_country> \"CORRUPT_VALUE\"".to_string();
+
+        assert!(matches!(
+            redact_error,
+            Err(ssi_ldp::Error::RSS(RSSError::InconsistentValuesInMask(
+                _error_string
+            )))
+        ));
+    }
+
+    #[async_std::test]
+    async fn rss_credential_redact_corrupt_mask_metadata() {
+        let mut vc: Credential = serde_json::from_str(RSS_SIGNED_VC).unwrap();
+        // redact information from vc with **forged issuance date**
+        let vc_disclosure_mask = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2021-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "height": null,
+                "weight": null,
+                "nationality": null,
+                "given_name": null,
+                "family_name": null,
+                "issuing_country": "US",
+                "birth_date": null,
+                "age_in_years": 30,
+                "age_birth_year": null
+              }
+            }
+          }"###;
+        let mut context_loader = ssi_json_ld::ContextLoader::default();
+        // produce redacted vc from redacted json
+        let unsigned_mask: Credential = Credential::from_json_unsigned(vc_disclosure_mask).unwrap();
+        let redact_error = vc
+            .rss_redact(unsigned_mask, &DIDExample, &mut context_loader)
+            .await;
+
+        assert!(matches!(
+            redact_error,
+            Err(ssi_ldp::Error::RSS(RSSError::MaskKeyMismatch))
+        ));
+    }
+
+    #[async_std::test]
+    async fn rss_credential_redact_incomplete_mask() {
+        let mut vc: Credential = serde_json::from_str(RSS_SIGNED_VC).unwrap();
+        // redact information from vc
+        let vc_disclosure_mask = r###"{
+            "@context": [
+              "https://www.w3.org/2018/credentials/v1",
+              "https://w3id.org/vdl/v1"
+            ],
+            "type": [
+              "VerifiableCredential",
+              "Iso18013DriversLicense"
+            ],
+            "issuer": "did:example:rss",
+            "issuanceDate": "2020-08-19T21:41:50Z",
+            "credentialSubject": {
+              "id": "did:example:12347abcd",
+              "Iso18013DriversLicense": {
+                "issuing_country": "US",
+                "birth_date": null,
+                "age_in_years": 30,
+                "age_birth_year": null
+              }
+            }
+          }"###;
+        let mut context_loader = ssi_json_ld::ContextLoader::default();
+        // produce redacted vc from redacted json
+        let unsigned_mask: Credential = Credential::from_json_unsigned(vc_disclosure_mask).unwrap();
+        let redact_error = vc
+            .rss_redact(unsigned_mask, &DIDExample, &mut context_loader)
+            .await;
+
+        assert!(matches!(
+            redact_error,
+            Err(ssi_ldp::Error::RSS(RSSError::MaskKeyMismatch))
+        ));
     }
 }

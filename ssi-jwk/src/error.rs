@@ -1,6 +1,8 @@
 //! Error types for `ssi-jwk` crate
 #[cfg(feature = "aleo")]
 use crate::aleo::AleoGeneratePrivateKeyError;
+#[cfg(feature = "rss")]
+use crate::rss::RSSKeyError;
 use base64::DecodeError as Base64Error;
 #[cfg(feature = "ring")]
 use ring::error::{KeyRejected as KeyRejectedError, Unspecified as RingUnspecified};
@@ -125,6 +127,10 @@ pub enum Error {
     /// Error parsing or producing multibase
     #[error(transparent)]
     Multibase(#[from] multibase::Error),
+    /// Wrapped RSS key error
+    #[cfg(feature = "rss")]
+    #[error(transparent)]
+    WrappedRSSKeyError(#[from] RSSKeyError),
 }
 
 #[cfg(feature = "ring")]

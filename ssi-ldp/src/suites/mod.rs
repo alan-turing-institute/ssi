@@ -3,6 +3,8 @@ mod aleo;
 pub mod dataintegrity;
 #[cfg(feature = "eip")]
 mod eip;
+#[cfg(feature = "rss")]
+pub mod rss;
 #[cfg(feature = "secp256k1")]
 mod secp256k1;
 #[cfg(feature = "solana")]
@@ -17,6 +19,8 @@ use aleo::*;
 use dataintegrity::*;
 #[cfg(feature = "eip")]
 use eip::*;
+#[cfg(feature = "rss")]
+use rss::*;
 #[cfg(feature = "secp256k1")]
 use secp256k1::*;
 use serde::{Deserialize, Serialize};
@@ -77,6 +81,8 @@ pub enum ProofSuiteType {
     #[cfg(feature = "secp256r1")]
     EcdsaSecp256r1Signature2019,
     CLSignature2019,
+    #[cfg(feature = "rss")]
+    RSSSignature2023,
     #[cfg(feature = "test")]
     NonJwsProof,
     #[cfg(feature = "test")]
@@ -140,6 +146,8 @@ impl ProofSuiteType {
             #[cfg(feature = "secp256r1")]
             Self::EcdsaSecp256r1Signature2019 => SignatureType::JWS,
             Self::CLSignature2019 => todo!(),
+            #[cfg(feature = "rss")]
+            Self::RSSSignature2023 => SignatureType::LD,
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
@@ -190,6 +198,8 @@ impl ProofSuiteType {
             #[cfg(feature = "secp256r1")]
             Self::EcdsaSecp256r1Signature2019 => &["https://w3id.org/security#EcdsaSecp256r1Signature2019"],
             Self::CLSignature2019 => todo!(),
+            #[cfg(feature = "rss")]
+            Self::RSSSignature2023 => &[],
             #[cfg(feature = "test")]
             Self::NonJwsProof |
             Self::AnonCredPresentationProofv1 | Self::AnonCredDerivedCredentialv1 => todo!(),
@@ -207,6 +217,8 @@ impl ProofSuiteType {
             Algorithm::ES384 => Self::JsonWebSignature2020,
             #[cfg(feature = "aleo")]
             Algorithm::AleoTestnet1Signature => Self::AleoSignature2021,
+            #[cfg(feature = "rss")]
+            Algorithm::RSS2023 => Self::RSSSignature2023,
             Algorithm::EdDSA | Algorithm::EdBlake2b => match verification_method {
                 #[cfg(feature = "solana")]
                 Some(URI::String(ref vm))
@@ -521,6 +533,17 @@ impl ProofSuite for ProofSuiteType {
                 .await
             }
             Self::CLSignature2019 => todo!(),
+            #[cfg(feature = "rss")]
+            Self::RSSSignature2023 => {
+                RSSSignature2023::sign(
+                    document,
+                    options,
+                    context_loader,
+                    key,
+                    extra_proof_properties,
+                )
+                .await
+            }
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
@@ -727,6 +750,8 @@ impl ProofSuite for ProofSuiteType {
                 .await
             }
             Self::CLSignature2019 => todo!(),
+            #[cfg(feature = "rss")]
+            Self::RSSSignature2023 => unimplemented!(),
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1
@@ -827,6 +852,10 @@ impl ProofSuite for ProofSuiteType {
                 verify(proof, document, resolver, context_loader).await
             }
             Self::CLSignature2019 => todo!(),
+            #[cfg(feature = "rss")]
+            Self::RSSSignature2023 => {
+                RSSSignature2023::verify(proof, document, resolver, context_loader).await
+            }
             #[cfg(feature = "test")]
             Self::NonJwsProof
             | Self::AnonCredPresentationProofv1

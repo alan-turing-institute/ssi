@@ -520,7 +520,7 @@ where
         expand_context,
         // VC HTTP API Test Suite expect properties to not be silently dropped.
         // More info: https://github.com/timothee-haudebourg/json-ld/issues/13
-        expansion_policy: json_ld::expansion::Policy::Strict,
+        expansion_policy: json_ld::expansion::Policy::Relaxed,
         ..Default::default()
     };
 
