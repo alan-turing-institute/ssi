@@ -1091,7 +1091,7 @@ impl Credential {
     }
 
     /// Selectively disclose a subset of the credential subject fields whilst maintaining
-    /// verifiability (applicable to Verifiable Credentials with a an RSSSignature2023 type proof). A
+    /// verifiability (applicable to Verifiable Credentials with an RSSSignature2023 type proof). A
     /// copy of the credential (with or without proofs included) is passed in with a partially masked `CredentialSubject` json map.
     /// Fields are masked by setting them to `serde_json::value::Value::Null`.
     #[cfg(feature = "rss")]
