@@ -8,7 +8,7 @@ pub const OKP_CURVE: &str = "RSSKey2023";
 #[derive(Error, Debug)]
 pub enum RSSKeyError {
     #[error("Unrecognised Params varient in JWK, expect OctetParams, found: {0:?}")]
-    UnexpectedJWKParamsVarient(JWKParams),
+    UnexpectedJWKParamsVarient(Box<JWKParams>),
     #[error("Private key missing from JWK.")]
     MissingPrivateKey,
     #[error("PKrss public key error: {0}")]
@@ -70,7 +70,9 @@ impl TryInto<RSSKeyPair> for &JWK {
                 private_key,
             })
         } else {
-            Err(RSSKeyError::UnexpectedJWKParamsVarient(self.params.clone()))
+            Err(RSSKeyError::UnexpectedJWKParamsVarient(Box::new(
+                self.params.clone(),
+            )))
         }
     }
 }
@@ -81,7 +83,9 @@ impl TryInto<PKrss> for JWK {
         if let JWKParams::OKP(params) = self.params {
             Ok((&params.public_key).try_into()?)
         } else {
-            Err(RSSKeyError::UnexpectedJWKParamsVarient(self.params))
+            Err(RSSKeyError::UnexpectedJWKParamsVarient(Box::new(
+                self.params,
+            )))
         }
     }
 }

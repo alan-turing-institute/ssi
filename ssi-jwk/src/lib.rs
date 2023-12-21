@@ -1306,6 +1306,7 @@ impl From<Base64urlUInt> for Base64urlUIntString {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "rss")]
     use ps_sig::keys::Params as RSSParams;
 
     const RSA_JSON: &str = include_str!("../../tests/rsa2048-2020-08-25.json");
