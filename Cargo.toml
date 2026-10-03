@@ -63,7 +63,6 @@ ssi-jwt = { path = "./ssi-jwt", version = "0.1", default-features = false }
 ssi-tzkey = { path = "./ssi-tzkey", version = "0.1", default-features = false }
 ssi-ldp = { path = "./ssi-ldp", version = "0.3.0", default-features = false }
 ssi-ssh = { path = "./ssi-ssh", version = "0.1", default-features = false }
-ssi-ucan = { path = "./ssi-ucan", version = "0.1" }
 ssi-vc = { path = "./ssi-vc", version = "0.2.0" }
 ssi-zcap-ld = { path = "./ssi-zcap-ld", version = "0.1.2" }
 ssi-caips = { path = "./ssi-caips", version = "0.1", default-features = false }
@@ -95,7 +94,6 @@ members = [
   "ssi-tzkey",
   "ssi-ssh",
   "ssi-ldp",
-  "ssi-ucan",
   "ssi-vc",
   "ssi-zcap-ld"
 ]

@@ -25,15 +25,6 @@ reqwest = { version = "0.11", default-features = false, features = [
   "json",
   "rustls-tls",
 ] }
-cacaos = { version = "0.5.1" }
-siwe-recap = { version = "0.1" }
-libipld = { version = "0.14", default-features = false, features = [
-  "dag-cbor",
-  "derive",
-] }
-multihash = { version = "0.16", default-features = false, features = [
-  "blake3",
-] }
 iref = "2.2.2"
 ssi-jwt = { path = "../ssi-jwt", version = "0.1", default-features = false }
 ssi-jws = { path = "../ssi-jws", version = "0.1", default-features = false }
@@ -67,5 +58,5 @@ ssi-ldp = { path = "../ssi-ldp", features = [
 ] }
 ssi-dids = { path = "../ssi-dids", version = "0.1", features = ["example"] }
 josekit = "0.8.2"
-time = "0.3.20"
+time = { version = "0.3.20", features = ["formatting", "macros"] }
 rstest = "0.17.0"

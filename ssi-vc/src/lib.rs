@@ -4,10 +4,8 @@ use std::str::FromStr;
 
 pub mod error;
 pub use error::Error;
-mod cacao;
 pub mod revocation;
 
-use cacao::BindingDelegation;
 use ps_sig::rsssig::RSignature;
 use ps_sig::FieldElement;
 use serde_with::{formats::PreferMany, serde_as, OneOrMany as SerdeWithOneOrMany};
@@ -276,8 +274,6 @@ pub enum HolderBinding {
         from: String,
         // proof: String,
     },
-    #[serde(rename_all = "camelCase")]
-    CacaoDelegationHolderBinding2022 { cacao_delegation: BindingDelegation },
     #[serde(other)]
     Unknown,
 }
@@ -1783,6 +1779,7 @@ impl Presentation {
     }
 
     pub(crate) async fn get_authorized_holders(&self) -> Result<Vec<String>, Error> {
+        #[cfg_attr(not(test), allow(unused_mut))]
         let mut holders = match (self.holder.as_ref(), self.holder_binding.as_ref()) {
             (Some(_), Some(_)) | (None, None) => vec![],
             (Some(h), None) => vec![h.to_string()],
@@ -1799,19 +1796,6 @@ impl Presentation {
                     }
                     // let signature = base64::decode_config(proof, base64::URL_SAFE_NO_PAD)?;
                     holders.push(to.to_string());
-                }
-                HolderBinding::CacaoDelegationHolderBinding2022 { cacao_delegation } => {
-                    match cacao_delegation
-                        .validate_presentation(
-                            self.verifiable_credential.as_ref(),
-                            self.holder.as_ref(),
-                        )
-                        .await
-                    {
-                        Ok(Some(h)) => holders.push(h),
-                        Ok(None) => continue,
-                        Err(e) => Err(e)?,
-                    }
                 }
                 HolderBinding::Unknown => {
                     // TODO: return warning or error for unknown holder binding?
